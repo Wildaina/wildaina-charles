@@ -1,10 +1,9 @@
-name: Bootstrap Wildaina website
+name: Apply Wildaina mobile fixes
 
 on:
   push:
     branches: [main]
     paths:
-      - 'site.part.*.b64'
       - '.github/workflows/bootstrap-site.yml'
   workflow_dispatch:
 
@@ -12,35 +11,133 @@ permissions:
   contents: write
 
 jobs:
-  build-site:
+  fix-site:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Rebuild premium website package
+      - name: Make logo a true transparent PNG
         run: |
-          cat site.part.00.b64 site.part.01.b64 site.part.02.b64 site.part.03.b64 site.part.04.b64 site.part.05.b64 > /tmp/site.b64
-          base64 -d /tmp/site.b64 > /tmp/site.zip
-          unzip -o /tmp/site.zip -d .
-          mkdir -p assets
+          python3 -m pip install --quiet pillow
+          python3 <<'PY'
+          from pathlib import Path
+          from PIL import Image
 
-      - name: Import approved image assets
+          path = Path('assets/logo.png')
+          image = Image.open(path).convert('RGBA')
+          result = Image.new('RGBA', image.size, (255, 255, 255, 0))
+          src = image.load()
+          dst = result.load()
+
+          # The supplied logo is white artwork on a black field. Convert the
+          # brightness of every pixel into alpha so the black field becomes
+          # fully transparent while anti-aliased white lettering stays smooth.
+          for y in range(image.height):
+              for x in range(image.width):
+                  r, g, b, a = src[x, y]
+                  luminance = max(r, g, b)
+                  alpha = round((luminance / 255) * a)
+                  dst[x, y] = (255, 255, 255, alpha)
+
+          bbox = result.getbbox()
+          if bbox:
+              result = result.crop(bbox)
+              pad = max(18, round(max(result.size) * 0.035))
+              padded = Image.new('RGBA', (result.width + pad * 2, result.height + pad * 2), (255, 255, 255, 0))
+              padded.alpha_composite(result, (pad, pad))
+              result = padded
+
+          result.save(path, 'PNG', optimize=True)
+          PY
+
+      - name: Add transparent logo mobile CSS
         run: |
-          base='https://raw.githubusercontent.com/kther448/wildaina-charles/main/assets'
-          for file in IMG_6132.jpeg IMG_6133.jpeg IMG_6134.jpeg IMG_6135.jpeg IMG_6136.jpeg IMG_6137.jpeg IMG_6138.jpeg IMG_6139.jpeg IMG_6140.jpeg IMG_6141.jpeg IMG_6142.jpeg logo.png; do
-            curl -fL "$base/$file" -o "assets/$file"
-          done
+          if ! grep -q 'WILDAINA_MOBILE_LOGO_FIX' styles.css; then
+            cat >> styles.css <<'CSS'
 
-      - name: Commit website files
+          /* WILDAINA_MOBILE_LOGO_FIX */
+          .brand,
+          .nav .brand,
+          header .brand {
+            background: transparent !important;
+            box-shadow: none !important;
+          }
+          .brand img,
+          .nav .brand img,
+          header .brand img {
+            display: block;
+            background: transparent !important;
+            object-fit: contain;
+          }
+          @media (max-width: 900px) {
+            .brand,
+            .nav .brand,
+            header .brand {
+              width: auto !important;
+              height: auto !important;
+              min-width: 0 !important;
+              min-height: 0 !important;
+              padding: 0 !important;
+            }
+            .brand img,
+            .nav .brand img,
+            header .brand img {
+              width: 132px !important;
+              height: auto !important;
+              max-height: 62px !important;
+            }
+          }
+          CSS
+          fi
+
+      - name: Remove oversized Media label from mobile Gallery
+        run: |
+          if ! grep -q 'WILDAINA_GALLERY_MOBILE_MEDIA_FIX' script.js; then
+            cat >> script.js <<'JS'
+
+          /* WILDAINA_GALLERY_MOBILE_MEDIA_FIX */
+          (() => {
+            const fixGalleryMediaLabel = () => {
+              const mobile = window.matchMedia('(max-width: 900px)').matches;
+              const galleryPage =
+                window.location.pathname.toLowerCase().includes('gallery') ||
+                document.title.toLowerCase().includes('gallery');
+              if (!mobile || !galleryPage) return;
+
+              document.querySelectorAll('h1,h2,h3,h4,p,span,a,div').forEach((el) => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                if (text !== 'media') return;
+                const style = window.getComputedStyle(el);
+                const fontSize = parseFloat(style.fontSize) || 0;
+                if (fontSize >= 34) {
+                  el.style.setProperty('display', 'none', 'important');
+                }
+              });
+            };
+
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', fixGalleryMediaLabel);
+            } else {
+              fixGalleryMediaLabel();
+            }
+            window.addEventListener('resize', fixGalleryMediaLabel);
+          })();
+          JS
+          fi
+
+      - name: Remove temporary bootstrap package files
         run: |
           rm -f wildaina-charles-premium-v2.zip site.part.*.b64
+
+      - name: Commit fixes
+        run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           if git diff --cached --quiet; then
             echo 'No changes to commit.'
           else
-            git commit -m 'Deploy Wildaina Charles premium website'
+            git commit -m 'Fix mobile logo transparency and Gallery label'
             git push
           fi
