@@ -25,3 +25,31 @@ async function loadRemoteGallery(){const grid=document.getElementById('galleryGr
 function videoEmbed(url){try{const u=new URL(url);if(u.hostname.includes('youtube.com')){const id=u.searchParams.get('v');if(id)return `https://www.youtube.com/embed/${encodeURIComponent(id)}`;}if(u.hostname==='youtu.be'){return `https://www.youtube.com/embed/${encodeURIComponent(u.pathname.slice(1))}`;}if(u.hostname.includes('vimeo.com')){const id=u.pathname.split('/').filter(Boolean).pop();if(id)return `https://player.vimeo.com/video/${encodeURIComponent(id)}`;}}catch{}return null}
 async function loadRemoteVideos(){const grid=document.getElementById('videoGrid'),client=getClient();if(!grid||!client)return;const{data,error}=await client.from('wildaina_videos').select('title,url,category,created_at').order('created_at',{ascending:false});if(error||!data?.length)return;grid.innerHTML=data.map(x=>{const embed=videoEmbed(x.url);const media=embed?`<div class="video-embed"><iframe src="${safeText(embed)}" title="${safeText(x.title)}" loading="lazy" allowfullscreen></iframe></div>`:`<a class="media-cover media-one" href="${safeText(x.url)}" target="_blank" rel="noreferrer"><span>▶</span></a>`;return `<article class="media-card visible">${media}<p class="eyebrow dark">${safeText(x.category)}</p><h2>${safeText(x.title)}</h2></article>`}).join('')}
 loadRemoteGallery();loadRemoteVideos();
+
+/* WILDAINA_GALLERY_MOBILE_MEDIA_FIX */
+(() => {
+  const fixGalleryMediaLabel = () => {
+    const mobile = window.matchMedia('(max-width: 900px)').matches;
+    const galleryPage =
+      window.location.pathname.toLowerCase().includes('gallery') ||
+      document.title.toLowerCase().includes('gallery');
+    if (!mobile || !galleryPage) return;
+
+    document.querySelectorAll('h1,h2,h3,h4,p,span,a,div').forEach((el) => {
+      const text = (el.textContent || '').trim().toLowerCase();
+      if (text !== 'media') return;
+      const style = window.getComputedStyle(el);
+      const fontSize = parseFloat(style.fontSize) || 0;
+      if (fontSize >= 34) {
+        el.style.setProperty('display', 'none', 'important');
+      }
+    });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fixGalleryMediaLabel);
+  } else {
+    fixGalleryMediaLabel();
+  }
+  window.addEventListener('resize', fixGalleryMediaLabel);
+})();
