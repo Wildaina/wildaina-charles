@@ -31,3 +31,21 @@ header .brand img {
     max-height: 62px !important;
   }
 }
+
+/* WILDAINA_LOGO_VARIANTS */
+.brand,
+.nav .brand,
+header .brand { background: transparent !important; box-shadow: none !important; }
+.brand img,
+.nav .brand img,
+header .brand img,
+.site-footer > img {
+  filter: none !important;
+  mix-blend-mode: normal !important;
+  background: transparent !important;
+  object-fit: contain;
+}
+@media (max-width: 1000px) {
+  .nav-links { display: none !important; transform: none !important; }
+  .nav-links.open { display: flex !important; }
+}
