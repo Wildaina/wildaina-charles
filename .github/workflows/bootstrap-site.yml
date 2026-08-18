@@ -1,4 +1,4 @@
-name: Apply Wildaina mobile fixes
+name: Install Wildaina logo variants
 
 on:
   push:
@@ -11,126 +11,98 @@ permissions:
   contents: write
 
 jobs:
-  fix-site:
+  update-branding:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Make logo a true transparent PNG
+      - name: Build transparent white and black PNG logos
         run: |
           python3 -m pip install --quiet pillow
           python3 <<'PY'
           from pathlib import Path
           from PIL import Image
 
-          path = Path('assets/logo.png')
-          image = Image.open(path).convert('RGBA')
-          result = Image.new('RGBA', image.size, (255, 255, 255, 0))
-          src = image.load()
-          dst = result.load()
+          source = Path('assets/logo.png')
+          image = Image.open(source).convert('RGBA')
 
-          # The supplied logo is white artwork on a black field. Convert the
-          # brightness of every pixel into alpha so the black field becomes
-          # fully transparent while anti-aliased white lettering stays smooth.
-          for y in range(image.height):
-              for x in range(image.width):
-                  r, g, b, a = src[x, y]
-                  luminance = max(r, g, b)
-                  alpha = round((luminance / 255) * a)
-                  dst[x, y] = (255, 255, 255, alpha)
+          # Keep the current transparent white logo if it is already transparent.
+          # If any old black field remains, derive alpha from the artwork brightness.
+          alpha = image.getchannel('A')
+          if alpha.getextrema()[0] == 255:
+              clean = Image.new('RGBA', image.size, (255, 255, 255, 0))
+              src = image.load(); dst = clean.load()
+              for y in range(image.height):
+                  for x in range(image.width):
+                      r, g, b, a = src[x, y]
+                      lum = max(r, g, b)
+                      dst[x, y] = (255, 255, 255, round((lum / 255) * a))
+          else:
+              clean = Image.new('RGBA', image.size, (255, 255, 255, 0))
+              src = image.load(); dst = clean.load()
+              for y in range(image.height):
+                  for x in range(image.width):
+                      r, g, b, a = src[x, y]
+                      dst[x, y] = (255, 255, 255, a)
 
-          bbox = result.getbbox()
+          bbox = clean.getbbox()
           if bbox:
-              result = result.crop(bbox)
-              pad = max(18, round(max(result.size) * 0.035))
-              padded = Image.new('RGBA', (result.width + pad * 2, result.height + pad * 2), (255, 255, 255, 0))
-              padded.alpha_composite(result, (pad, pad))
-              result = padded
+              clean = clean.crop(bbox)
+              pad = max(14, round(max(clean.size) * 0.03))
+              padded = Image.new('RGBA', (clean.width + pad * 2, clean.height + pad * 2), (255,255,255,0))
+              padded.alpha_composite(clean, (pad, pad))
+              clean = padded
 
-          result.save(path, 'PNG', optimize=True)
+          white = clean
+          black = Image.new('RGBA', white.size, (0,0,0,0))
+          wa = white.getchannel('A')
+          black.putalpha(wa)
+
+          white.save('assets/logo-white.png', 'PNG', optimize=True)
+          black.save('assets/logo-black.png', 'PNG', optimize=True)
+          # Backward compatibility: keep logo.png as the white transparent version.
+          white.save('assets/logo.png', 'PNG', optimize=True)
           PY
 
-      - name: Add transparent logo mobile CSS
+      - name: Use white logo on dark surfaces and black favicon on light browser chrome
         run: |
-          if ! grep -q 'WILDAINA_MOBILE_LOGO_FIX' styles.css; then
+          python3 <<'PY'
+          from pathlib import Path
+          for path in Path('.').glob('*.html'):
+              text = path.read_text(encoding='utf-8')
+              text = text.replace('<img src="assets/logo.png"', '<img src="assets/logo-white.png"')
+              text = text.replace('<img class="admin-logo" src="assets/logo.png"', '<img class="admin-logo" src="assets/logo-white.png"')
+              text = text.replace('rel="icon" type="image/png" href="assets/logo.png"', 'rel="icon" type="image/png" href="assets/logo-black.png"')
+              path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Add final logo and mobile navigation CSS
+        run: |
+          if ! grep -q 'WILDAINA_LOGO_VARIANTS' styles.css; then
             cat >> styles.css <<'CSS'
 
-          /* WILDAINA_MOBILE_LOGO_FIX */
+          /* WILDAINA_LOGO_VARIANTS */
           .brand,
           .nav .brand,
-          header .brand {
-            background: transparent !important;
-            box-shadow: none !important;
-          }
+          header .brand { background: transparent !important; box-shadow: none !important; }
           .brand img,
           .nav .brand img,
-          header .brand img {
-            display: block;
+          header .brand img,
+          .site-footer > img {
+            filter: none !important;
+            mix-blend-mode: normal !important;
             background: transparent !important;
             object-fit: contain;
           }
-          @media (max-width: 900px) {
-            .brand,
-            .nav .brand,
-            header .brand {
-              width: auto !important;
-              height: auto !important;
-              min-width: 0 !important;
-              min-height: 0 !important;
-              padding: 0 !important;
-            }
-            .brand img,
-            .nav .brand img,
-            header .brand img {
-              width: 132px !important;
-              height: auto !important;
-              max-height: 62px !important;
-            }
+          @media (max-width: 1000px) {
+            .nav-links { display: none !important; transform: none !important; }
+            .nav-links.open { display: flex !important; }
           }
           CSS
           fi
 
-      - name: Remove oversized Media label from mobile Gallery
-        run: |
-          if ! grep -q 'WILDAINA_GALLERY_MOBILE_MEDIA_FIX' script.js; then
-            cat >> script.js <<'JS'
-
-          /* WILDAINA_GALLERY_MOBILE_MEDIA_FIX */
-          (() => {
-            const fixGalleryMediaLabel = () => {
-              const mobile = window.matchMedia('(max-width: 900px)').matches;
-              const galleryPage =
-                window.location.pathname.toLowerCase().includes('gallery') ||
-                document.title.toLowerCase().includes('gallery');
-              if (!mobile || !galleryPage) return;
-
-              document.querySelectorAll('h1,h2,h3,h4,p,span,a,div').forEach((el) => {
-                const text = (el.textContent || '').trim().toLowerCase();
-                if (text !== 'media') return;
-                const style = window.getComputedStyle(el);
-                const fontSize = parseFloat(style.fontSize) || 0;
-                if (fontSize >= 34) {
-                  el.style.setProperty('display', 'none', 'important');
-                }
-              });
-            };
-
-            if (document.readyState === 'loading') {
-              document.addEventListener('DOMContentLoaded', fixGalleryMediaLabel);
-            } else {
-              fixGalleryMediaLabel();
-            }
-            window.addEventListener('resize', fixGalleryMediaLabel);
-          })();
-          JS
-          fi
-
-      - name: Remove temporary bootstrap package files
-        run: |
-          rm -f wildaina-charles-premium-v2.zip site.part.*.b64
-
-      - name: Commit fixes
+      - name: Commit branding update
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -138,6 +110,6 @@ jobs:
           if git diff --cached --quiet; then
             echo 'No changes to commit.'
           else
-            git commit -m 'Fix mobile logo transparency and Gallery label'
+            git commit -m 'Add transparent white and black logo variants'
             git push
           fi
