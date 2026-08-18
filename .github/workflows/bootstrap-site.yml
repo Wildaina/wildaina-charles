@@ -1,0 +1,44 @@
+name: Bootstrap Wildaina website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wildaina-charles-premium-v2.zip'
+      - '.github/workflows/bootstrap-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-site:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract premium website
+        run: |
+          unzip -o wildaina-charles-premium-v2.zip -d .
+          mkdir -p assets
+
+      - name: Import approved image assets
+        run: |
+          base='https://raw.githubusercontent.com/kther448/wildaina-charles/main/assets'
+          for file in IMG_6132.jpeg IMG_6133.jpeg IMG_6134.jpeg IMG_6135.jpeg IMG_6136.jpeg IMG_6137.jpeg IMG_6138.jpeg IMG_6139.jpeg IMG_6140.jpeg IMG_6141.jpeg IMG_6142.jpeg logo.png; do
+            curl -fL "$base/$file" -o "assets/$file"
+          done
+
+      - name: Commit website files
+        run: |
+          rm -f wildaina-charles-premium-v2.zip
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+          else
+            git commit -m 'Deploy Wildaina Charles premium website'
+            git push
+          fi
